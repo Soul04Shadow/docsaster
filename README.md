@@ -33,27 +33,35 @@ trading volume while keeping net exposure close to zero.
 
 ### Configuration
 
-Copy `bot-config.example.yaml` to a secure location and populate it with your
-API keys for two hedge-mode enabled accounts.
+All runtime settings live in a single configuration file—no command-line
+overrides are required. Copy the provided example and fill in the credentials
+for your paired accounts:
 
 ```bash
 cp bot-config.example.yaml my-config.yaml
 ```
 
-Update the `bot` section with your preferred symbol, leverage, target volume,
-and other runtime parameters.
+Update the new file with your API keys and desired bot parameters. The
+`bot-config.example.yaml` file is heavily documented and lists every supported
+option, including:
+
+- `symbol`, `order_quantity`, `leverage`, and `margin_type` for each cycle.
+- Risk controls such as `target_volume`, `hold_seconds`, and `max_cycles`.
+- Output settings such as `status_file` and `status_update_interval_minutes`
+  (defaults to 60 minutes).
 
 ### Running the Bot
 
-Use the CLI entrypoint to start generating volume:
+Start the bot from the terminal and point it at your configuration file. Logs
+remain in the console so you can watch each hedge cycle as it completes.
 
 ```bash
 python volume_bot.py run --config my-config.yaml -vv
 ```
 
-Add `--dry-run` to simulate behaviour without submitting orders. The bot
-writes live metrics to the status file defined in the configuration. You can
-inspect it with:
+The bot only writes to the status file at the configured interval (e.g. once
+per hour by default). To inspect the most recent snapshot, use the status
+helper:
 
 ```bash
 python volume_bot.py status --status-file bot_status.json

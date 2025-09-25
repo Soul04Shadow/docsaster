@@ -39,6 +39,8 @@ class BotConfig:
     dry_run: bool = False
     max_retries: int = 3
     hedge_mode: bool = True
+    max_cycles: Optional[int] = None
+    status_update_interval_minutes: float = 60.0
 
 
 def _to_decimal(value: Any) -> Decimal:
@@ -91,8 +93,10 @@ def load_config(path: Path) -> Tuple[AccountConfig, AccountConfig, BotConfig]:
             leverage: 50
             # optional overrides
             target_volume: 1_000_000
+            max_cycles: 100
             margin_type: ISOLATED
             status_file: status.json
+            status_update_interval_minutes: 60
             hold_seconds: 1.5
             delay_seconds: 0.8
             order_timeout: 8
@@ -153,6 +157,8 @@ def load_config(path: Path) -> Tuple[AccountConfig, AccountConfig, BotConfig]:
         dry_run=bool(bot_data.get("dry_run", False)),
         max_retries=int(bot_data.get("max_retries", 3)),
         hedge_mode=bool(bot_data.get("hedge_mode", True)),
+        max_cycles=int(bot_data["max_cycles"]) if bot_data.get("max_cycles") is not None else None,
+        status_update_interval_minutes=float(bot_data.get("status_update_interval_minutes", 60.0)),
     )
 
     return long_account, short_account, config

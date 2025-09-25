@@ -1,22 +1,37 @@
 long_account:
+  # Descriptive label used in logs
   name: maker-long
+  # API credentials for the long account (hedge mode enabled)
   api_key: YOUR_LONG_ACCOUNT_API_KEY
   api_secret: YOUR_LONG_ACCOUNT_API_SECRET
+
 short_account:
+  # Descriptive label used in logs
   name: maker-short
+  # API credentials for the short account (hedge mode enabled)
   api_key: YOUR_SHORT_ACCOUNT_API_KEY
   api_secret: YOUR_SHORT_ACCOUNT_API_SECRET
+
 bot:
+  # Trading pair to generate volume on
   symbol: BTCUSDT
+  # Quantity for each market order
   order_quantity: 0.001
+  # Futures leverage and margin preferences
   leverage: 50
   margin_type: ISOLATED
-  target_volume: 1000
-  hold_seconds: 1.0
-  delay_seconds: 0.5
-  order_timeout: 15
-  poll_interval: 0.5
+
+  # Optional controls
+  target_volume: 1000            # Stop after this much quote volume is traded
+  max_cycles: null               # Or set to an integer number of hedge cycles
+  hold_seconds: 1.0              # Wait time between opening and closing legs
+  delay_seconds: 0.5             # Pause between cycles
+  order_timeout: 15              # Seconds to wait for fills
+  poll_interval: 0.5             # Polling cadence when tracking fills
+  max_retries: 3                 # Retries for recoverable API errors
+  hedge_mode: true               # Ensure dual-side positions are enabled
+  dry_run: true                  # Simulate orders without touching the API
+
+  # Monitoring
   status_file: bot_status.json
-  dry_run: true
-  max_retries: 3
-  hedge_mode: true
+  status_update_interval_minutes: 60  # Write status snapshots to disk hourly

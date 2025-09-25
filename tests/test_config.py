@@ -32,6 +32,8 @@ def test_load_config(tmp_path: Path) -> None:
     assert bot_config.symbol == "BTCUSDT"
     assert bot_config.order_quantity == Decimal("0.01")
     assert bot_config.target_volume == Decimal("100")
+    assert bot_config.max_cycles is None
+    assert bot_config.status_update_interval_minutes == 60.0
 
 
 def test_load_config_missing_block(tmp_path: Path) -> None:
@@ -39,3 +41,28 @@ def test_load_config_missing_block(tmp_path: Path) -> None:
     config_path.write_text("{}", encoding="utf-8")
     with pytest.raises(KeyError):
         load_config(config_path)
+
+
+def test_load_config_optional_fields(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        """
+        {
+            "long_account": {"name": "long", "api_key": "k1", "api_secret": "s1"},
+            "short_account": {"name": "short", "api_key": "k2", "api_secret": "s2"},
+            "bot": {
+                "symbol": "ETHUSDT",
+                "order_quantity": "0.5",
+                "leverage": 25,
+                "max_cycles": 10,
+                "status_update_interval_minutes": 120,
+                "dry_run": true
+            }
+        }
+        """,
+        encoding="utf-8",
+    )
+    _, _, bot_config = load_config(config_path)
+    assert bot_config.max_cycles == 10
+    assert bot_config.status_update_interval_minutes == 120.0
+    assert bot_config.dry_run is True

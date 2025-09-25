@@ -87,6 +87,7 @@ class DeltaNeutralVolumeBot:
         if self.status_file:
             Path(self.status_file).parent.mkdir(parents=True, exist_ok=True)
         self._stop = False
+        self._last_status_write = 0.0
 
     # ------------------------------------------------------------------
     # Public API
@@ -99,10 +100,11 @@ class DeltaNeutralVolumeBot:
 
         logger.info("Starting delta-neutral volume bot for %s", self.config.symbol)
         self._prepare_accounts()
+        effective_max_cycles = max_cycles if max_cycles is not None else self.config.max_cycles
         try:
             while not self._stop:
-                if max_cycles is not None and self.cycles_completed >= max_cycles:
-                    logger.info("Reached cycle limit (%s)", max_cycles)
+                if effective_max_cycles is not None and self.cycles_completed >= effective_max_cycles:
+                    logger.info("Reached cycle limit (%s)", effective_max_cycles)
                     break
                 if self.config.target_volume is not None and self.total_volume >= self.config.target_volume:
                     logger.info("Target volume %s reached", self.config.target_volume)
@@ -264,6 +266,16 @@ class DeltaNeutralVolumeBot:
     def _write_status(self, cycle_result: CycleResult) -> None:
         if not self.status_file:
             return
+        interval_minutes = max(self.config.status_update_interval_minutes, 0.0)
+        interval_seconds = interval_minutes * 60 if interval_minutes else 0.0
+        now = time.time()
+        if self._last_status_write and interval_seconds and (now - self._last_status_write) < interval_seconds:
+            logger.debug(
+                "Skipping status file update; last write %.0fs ago (interval %.0fs)",
+                now - self._last_status_write,
+                interval_seconds,
+            )
+            return
         status_payload = {
             "symbol": self.config.symbol,
             "cycles_completed": self.cycles_completed,
@@ -279,9 +291,11 @@ class DeltaNeutralVolumeBot:
             "margin_type": self.config.margin_type,
             "hedge_mode": self.config.hedge_mode,
             "dry_run": self.config.dry_run,
+            "status_update_interval_minutes": self.config.status_update_interval_minutes,
         }
         try:
             Path(self.status_file).write_text(json.dumps(status_payload, indent=2), encoding="utf-8")
+            self._last_status_write = now
         except OSError as exc:  # pragma: no cover - disk failure
             logger.error("Failed to write status file %s: %s", self.status_file, exc)
 
