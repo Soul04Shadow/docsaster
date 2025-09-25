@@ -165,6 +165,21 @@ class ApiClient:
         params = {"symbol": symbol, "leverage": leverage}
         return self._request("POST", "/fapi/v1/leverage", params=params, signed=True)
 
+    def get_symbol_price(self, symbol: str) -> Decimal:
+        """Fetches the latest ticker price for *symbol*."""
+
+        response = self._request("GET", "/fapi/v1/ticker/price", params={"symbol": symbol})
+        try:
+            return Decimal(str(response["price"]))
+        except (KeyError, ValueError, TypeError) as exc:  # pragma: no cover - protective guard
+            raise ApiError(500, None, "Malformed price payload returned by ticker endpoint") from exc
+
+    def get_exchange_info(self, symbol: Optional[str] = None) -> Dict[str, Any]:
+        """Returns exchange metadata, optionally scoped to *symbol*."""
+
+        params = {"symbol": symbol} if symbol is not None else None
+        return self._request("GET", "/fapi/v1/exchangeInfo", params=params)
+
     def place_order(
         self,
         symbol: str,
