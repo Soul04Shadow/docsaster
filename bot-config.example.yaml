@@ -1,0 +1,22 @@
+long_account:
+  name: maker-long
+  api_key: YOUR_LONG_ACCOUNT_API_KEY
+  api_secret: YOUR_LONG_ACCOUNT_API_SECRET
+short_account:
+  name: maker-short
+  api_key: YOUR_SHORT_ACCOUNT_API_KEY
+  api_secret: YOUR_SHORT_ACCOUNT_API_SECRET
+bot:
+  symbol: BTCUSDT
+  order_quantity: 0.001
+  leverage: 50
+  margin_type: ISOLATED
+  target_volume: 1000
+  hold_seconds: 1.0
+  delay_seconds: 0.5
+  order_timeout: 15
+  poll_interval: 0.5
+  status_file: bot_status.json
+  dry_run: true
+  max_retries: 3
+  hedge_mode: true
