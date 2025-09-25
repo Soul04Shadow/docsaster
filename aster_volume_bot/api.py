@@ -170,7 +170,7 @@ class ApiClient:
         symbol: str,
         side: str,
         order_type: str,
-        quantity: Decimal,
+        quantity: Optional[Decimal] = None,
         position_side: Optional[str] = None,
         time_in_force: Optional[str] = None,
         reduce_only: Optional[bool] = None,
@@ -183,13 +183,15 @@ class ApiClient:
         activation_price: Optional[Decimal] = None,
         new_order_resp_type: Optional[str] = None,
         recv_window: Optional[int] = None,
+        quote_order_qty: Optional[Decimal] = None,
     ) -> OrderResult:
-        params: Dict[str, Any] = {
-            "symbol": symbol,
-            "side": side,
-            "type": order_type,
-            "quantity": quantity,
-        }
+        params: Dict[str, Any] = {"symbol": symbol, "side": side, "type": order_type}
+        if quantity is not None:
+            params["quantity"] = quantity
+        if quote_order_qty is not None:
+            params["quoteOrderQty"] = quote_order_qty
+        if "quantity" not in params and "quoteOrderQty" not in params:
+            raise ValueError("An order requires either 'quantity' or 'quote_order_qty'.")
         if position_side:
             params["positionSide"] = position_side
         if time_in_force:

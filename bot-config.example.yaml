@@ -15,8 +15,8 @@ short_account:
 bot:
   # Trading pair to generate volume on
   symbol: BTCUSDT
-  # Quantity for each market order
-  order_quantity: 0.001
+  # Quote amount (in USDT) to send with each market order
+  order_value: 25
   # Futures leverage and margin preferences
   leverage: 50
   margin_type: ISOLATED
@@ -31,6 +31,9 @@ bot:
   max_retries: 3                 # Retries for recoverable API errors
   hedge_mode: true               # Ensure dual-side positions are enabled
   dry_run: true                  # Simulate orders without touching the API
+
+  # Optional: use order_quantity instead of order_value to size by base asset
+  # order_quantity: 0.001
 
   # Monitoring
   status_file: bot_status.json

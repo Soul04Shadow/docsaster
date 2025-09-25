@@ -6,19 +6,54 @@ import json
 import logging
 from pathlib import Path
 
+from colorama import just_fix_windows_console
+
 from .bot import DeltaNeutralVolumeBot
 from .config import load_config
 
-LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+RESET = "\033[0m"
+DIM = "\033[2m"
+BOLD = "\033[1m"
+LEVEL_COLORS = {
+    logging.DEBUG: "\033[36m",
+    logging.INFO: "\033[32m",
+    logging.WARNING: "\033[33m",
+    logging.ERROR: "\033[31m",
+    logging.CRITICAL: "\033[41m",
+}
+
+
+class ColorFormatter(logging.Formatter):
+    """Pretty log formatter with ANSI colors for console output."""
+
+    def __init__(self) -> None:
+        super().__init__(fmt="%(message)s", datefmt="%H:%M:%S")
+
+    def format(self, record: logging.LogRecord) -> str:  # pragma: no cover - formatting logic
+        message = record.getMessage()
+        if record.exc_info:
+            message = f"{message}\n{self.formatException(record.exc_info)}"
+        timestamp = self.formatTime(record, self.datefmt)
+        level_color = LEVEL_COLORS.get(record.levelno, "")
+        level = f"{level_color}{BOLD}{record.levelname:<5}{RESET}"
+        name = f"{DIM}{record.name}{RESET}"
+        return f"{DIM}{timestamp}{RESET} {level} {name} {message}"
 
 
 def _configure_logging(verbosity: int) -> None:
+    just_fix_windows_console()
     level = logging.WARNING
     if verbosity == 1:
         level = logging.INFO
     elif verbosity >= 2:
         level = logging.DEBUG
-    logging.basicConfig(level=level, format=LOG_FORMAT)
+    handler = logging.StreamHandler()
+    handler.setLevel(level)
+    handler.setFormatter(ColorFormatter())
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.setLevel(level)
+    root_logger.addHandler(handler)
 
 
 def _parse_args() -> argparse.Namespace:

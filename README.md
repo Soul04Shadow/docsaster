@@ -45,7 +45,9 @@ Update the new file with your API keys and desired bot parameters. The
 `bot-config.example.yaml` file is heavily documented and lists every supported
 option, including:
 
-- `symbol`, `order_quantity`, `leverage`, and `margin_type` for each cycle.
+- `symbol`, `order_value` (in quote currency), `leverage`, and `margin_type` for each cycle.
+  If you prefer to size orders by base asset instead, you can still supply
+  `order_quantity`.
 - Risk controls such as `target_volume`, `hold_seconds`, and `max_cycles`.
 - Output settings such as `status_file` and `status_update_interval_minutes`
   (defaults to 60 minutes).
@@ -53,7 +55,8 @@ option, including:
 ### Running the Bot
 
 Start the bot from the terminal and point it at your configuration file. Logs
-remain in the console so you can watch each hedge cycle as it completes.
+remain in the console with color-coded summaries so you can watch each hedge
+cycle, filled notional, and cumulative fees at a glance.
 
 ```bash
 python volume_bot.py run --config my-config.yaml -vv

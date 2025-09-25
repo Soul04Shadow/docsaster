@@ -27,8 +27,9 @@ class BotConfig:
     """Runtime configuration for the delta-neutral volume bot."""
 
     symbol: str
-    order_quantity: Decimal
     leverage: int
+    order_notional: Optional[Decimal] = None
+    order_quantity: Optional[Decimal] = None
     margin_type: str = "ISOLATED"
     target_volume: Optional[Decimal] = None
     hold_seconds: float = 2.0
@@ -41,6 +42,12 @@ class BotConfig:
     hedge_mode: bool = True
     max_cycles: Optional[int] = None
     status_update_interval_minutes: float = 60.0
+
+    def __post_init__(self) -> None:
+        if self.order_notional is None and self.order_quantity is None:
+            raise ValueError(
+                "Bot configuration requires either 'order_value'/'order_notional' or 'order_quantity'."
+            )
 
 
 def _to_decimal(value: Any) -> Decimal:
@@ -89,8 +96,9 @@ def load_config(path: Path) -> Tuple[AccountConfig, AccountConfig, BotConfig]:
             api_secret: API secret string
         bot:
             symbol: TRADING_PAIR
-            order_quantity: 0.1
             leverage: 50
+            order_value: 25
+            # alternatively specify the base size with order_quantity
             # optional overrides
             target_volume: 1_000_000
             max_cycles: 100
@@ -132,10 +140,24 @@ def load_config(path: Path) -> Tuple[AccountConfig, AccountConfig, BotConfig]:
         raise KeyError("Missing configuration block 'bot'.")
     try:
         symbol = str(bot_data["symbol"])
-        order_quantity = _to_decimal(bot_data["order_quantity"])
         leverage = int(bot_data["leverage"])
     except KeyError as exc:  # pragma: no cover - protective
         raise KeyError(f"Bot configuration is missing key: {exc.args[0]}") from exc
+
+    order_notional_raw = None
+    for key in ("order_value", "order_notional", "order_quote_value"):
+        if key in bot_data:
+            order_notional_raw = bot_data[key]
+            break
+    order_quantity_raw = bot_data.get("order_quantity")
+
+    order_notional = _to_decimal(order_notional_raw) if order_notional_raw is not None else None
+    order_quantity = _to_decimal(order_quantity_raw) if order_quantity_raw is not None else None
+
+    if order_notional is None and order_quantity is None:
+        raise ValueError(
+            "Bot configuration requires either 'order_value'/'order_notional' or 'order_quantity'."
+        )
 
     target_volume = bot_data.get("target_volume")
     target_volume_decimal = _to_decimal(target_volume) if target_volume is not None else None
@@ -145,8 +167,9 @@ def load_config(path: Path) -> Tuple[AccountConfig, AccountConfig, BotConfig]:
 
     config = BotConfig(
         symbol=symbol,
-        order_quantity=order_quantity,
         leverage=leverage,
+        order_notional=order_notional,
+        order_quantity=order_quantity,
         margin_type=str(bot_data.get("margin_type", "ISOLATED")),
         target_volume=target_volume_decimal,
         hold_seconds=float(bot_data.get("hold_seconds", 2.0)),
