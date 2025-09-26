@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 import json
 import logging
 import time
@@ -59,6 +59,14 @@ class TradeRecord:
     timestamp: int
 
 
+@dataclass(frozen=True)
+class _SymbolLotSize:
+    """Represents the lot size constraints for a trading symbol."""
+
+    step_size: Decimal
+    min_qty: Decimal
+
+
 @dataclass
 class CycleResult:
     """Holds summary data for a single volume cycle."""
@@ -107,6 +115,9 @@ class DeltaNeutralVolumeBot:
             Path(self.status_file).parent.mkdir(parents=True, exist_ok=True)
         self._stop = False
         self._last_status_write = 0.0
+        self._lot_size_cache: Dict[str, "_SymbolLotSize"] = {}
+        self._last_quantity: Optional[Decimal] = None
+        self._last_price: Optional[Decimal] = None
 
     # ------------------------------------------------------------------
     # Formatting helpers
@@ -134,9 +145,12 @@ class DeltaNeutralVolumeBot:
     def _format_metric(self, label: str, value: Decimal, color: str) -> str:
         return f"{_paint(label, DIM)} {_paint(self._format_decimal(value), color, BOLD)}"
 
-    def _order_description(self) -> str:
+    def _order_description(self, quantity: Optional[Decimal] = None) -> str:
         if self.config.order_notional is not None:
-            return self._format_metric("Notional (USDT)", self.config.order_notional, FG_CYAN)
+            metrics = [self._format_metric("Notional (USDT)", self.config.order_notional, FG_CYAN)]
+            if quantity is not None:
+                metrics.append(self._format_metric("Quantity", quantity, FG_CYAN))
+            return "  ".join(metrics)
         if self.config.order_quantity is None:  # pragma: no cover - guarded by config validation
             raise ValueError("Bot configuration missing order size definition")
         return self._format_metric("Quantity", self.config.order_quantity, FG_CYAN)
@@ -151,12 +165,69 @@ class DeltaNeutralVolumeBot:
         ]
         return f"{_paint('│', DIM)} " + "  ".join(parts)
 
-    def _order_parameters(self) -> Dict[str, Decimal]:
-        if self.config.order_notional is not None:
-            return {"quote_order_qty": self.config.order_notional}
-        if self.config.order_quantity is None:  # pragma: no cover - guarded by config validation
-            raise ValueError("Bot configuration missing order quantity and order value")
-        return {"quantity": self.config.order_quantity}
+    def _get_symbol_lot_size(self, client: ApiClient, symbol: str) -> _SymbolLotSize:
+        if symbol in self._lot_size_cache:
+            return self._lot_size_cache[symbol]
+        exchange_info = client.get_exchange_info(symbol)
+        symbols = exchange_info.get("symbols", [])
+        for symbol_info in symbols:
+            if symbol_info.get("symbol") != symbol:
+                continue
+            lot_filter = None
+            market_lot_filter = None
+            for filter_entry in symbol_info.get("filters", []):
+                filter_type = filter_entry.get("filterType")
+                if filter_type == "MARKET_LOT_SIZE":
+                    market_lot_filter = filter_entry
+                elif filter_type == "LOT_SIZE":
+                    lot_filter = filter_entry
+            target_filter = market_lot_filter or lot_filter
+            if not target_filter:
+                break
+            step_size_raw = target_filter.get("stepSize")
+            min_qty_raw = target_filter.get("minQty", step_size_raw)
+            try:
+                step_size = Decimal(str(step_size_raw))
+                min_qty = Decimal(str(min_qty_raw))
+            except (ArithmeticError, ValueError, TypeError) as exc:
+                raise ValueError(
+                    f"Invalid lot size filter for symbol {symbol}: {target_filter}"
+                ) from exc
+            if step_size <= 0:
+                raise ValueError(f"Invalid step size {step_size} for symbol {symbol}")
+            if min_qty <= 0:
+                raise ValueError(f"Invalid minimum quantity {min_qty} for symbol {symbol}")
+            lot_size = _SymbolLotSize(step_size=step_size, min_qty=min_qty)
+            self._lot_size_cache[symbol] = lot_size
+            return lot_size
+        raise ValueError(f"Unable to determine lot size filters for symbol {symbol}")
+
+    def _determine_order_quantity(self, account_state: AccountState) -> Decimal:
+        if self.config.order_quantity is not None:
+            quantity = self.config.order_quantity
+            self._last_price = None
+        else:
+            if self.config.order_notional is None:  # pragma: no cover - guarded by config validation
+                raise ValueError("Bot configuration missing order size definition")
+            price = account_state.client.get_symbol_price(self.config.symbol)
+            if price <= 0:
+                raise ValueError(f"Received non-positive price {price} for {self.config.symbol}")
+            lot_size = self._get_symbol_lot_size(account_state.client, self.config.symbol)
+            raw_quantity = self.config.order_notional / price
+            quantity = raw_quantity.quantize(lot_size.step_size, rounding=ROUND_DOWN)
+            if quantity < lot_size.min_qty:
+                quantity = lot_size.min_qty
+            if quantity <= 0:
+                raise ValueError(
+                    "Derived order quantity is zero; increase order_notional or check symbol filters."
+                )
+            self._last_price = price
+        self._last_quantity = quantity
+        return quantity
+
+    def _order_parameters(self, account_state: AccountState) -> Dict[str, Decimal]:
+        quantity = self._determine_order_quantity(account_state)
+        return {"quantity": quantity}
 
     # ------------------------------------------------------------------
     # Public API
@@ -172,7 +243,7 @@ class DeltaNeutralVolumeBot:
             _paint("Starting", BOLD, FG_CYAN),
             _paint("delta-neutral volume bot", DIM),
             _paint(self.config.symbol, BOLD, FG_CYAN),
-            self._order_description(),
+            self._order_description(self._last_quantity),
         )
         self._prepare_accounts()
         effective_max_cycles = max_cycles if max_cycles is not None else self.config.max_cycles
@@ -260,7 +331,8 @@ class DeltaNeutralVolumeBot:
         if self.config.dry_run:
             return self._simulate_trade(account_state, side)
 
-        order_kwargs = self._order_parameters()
+        order_kwargs = self._order_parameters(account_state)
+        quantity = order_kwargs["quantity"]
         order_result = account_state.client.place_order(
             symbol=self.config.symbol,
             side=side,
@@ -275,7 +347,7 @@ class DeltaNeutralVolumeBot:
             self._account_label(account_state),
             _paint(str(order_result.order_id), FG_CYAN, BOLD),
             self._format_order_side(side),
-            self._order_description(),
+            self._order_description(quantity),
         )
         filled_order = self._wait_for_fill(account_state, order_result.order_id)
         trade_records = list(self._fetch_trade_records(account_state, filled_order))
@@ -335,13 +407,12 @@ class DeltaNeutralVolumeBot:
     # ------------------------------------------------------------------
     def _simulate_trade(self, account_state: AccountState, side: str) -> Sequence[TradeRecord]:
         now = int(time.time() * 1000)
-        price = Decimal("1")
+        qty = self._determine_order_quantity(account_state)
         if self.config.order_quantity is not None:
-            qty = self.config.order_quantity
-            quote_qty = qty * price
+            price = account_state.client.get_symbol_price(self.config.symbol)
         else:
-            quote_qty = self.config.order_notional if self.config.order_notional is not None else Decimal("0")
-            qty = quote_qty / price if price else quote_qty
+            price = self._last_price if self._last_price is not None else account_state.client.get_symbol_price(self.config.symbol)
+        quote_qty = qty * price
         commission = quote_qty * Decimal("0.0004") * Decimal("-1")
         record = TradeRecord(
             account=account_state.name,
@@ -358,7 +429,7 @@ class DeltaNeutralVolumeBot:
             "%s Simulated %s trade %s",
             self._account_label(account_state),
             self._format_order_side(side),
-            self._order_description(),
+            self._order_description(qty),
         )
         return [record]
 
@@ -389,7 +460,9 @@ class DeltaNeutralVolumeBot:
             "total_fees": str(self.total_fees),
             "target_volume": str(self.config.target_volume) if self.config.target_volume else None,
             "order_value": str(self.config.order_notional) if self.config.order_notional is not None else None,
-            "order_quantity": str(self.config.order_quantity) if self.config.order_quantity is not None else None,
+            "order_quantity": str(self._last_quantity)
+            if self._last_quantity is not None
+            else (str(self.config.order_quantity) if self.config.order_quantity is not None else None),
             "leverage": self.config.leverage,
             "margin_type": self.config.margin_type,
             "hedge_mode": self.config.hedge_mode,
